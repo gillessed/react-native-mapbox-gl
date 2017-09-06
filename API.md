@@ -362,9 +362,6 @@ The `Annotation` view has the following required props:
 1. `Annotation` views do not position correctly unless they have the following style props:
   `style={{alignItems: 'center', justifyContent: 'center', position: 'absolute'}}`.
 
-2. React Native views do not work with the regular `onAnnotationTapped` on need to
-   add their own tap handling (e.g. by using a `TouchableHighlight`).
-
 ###### Example
 
 ```

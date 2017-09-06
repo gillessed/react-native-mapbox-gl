@@ -80,7 +80,7 @@
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
     [self addGestureRecognizer:longPress];
 
-    UITapGestureRecognizer *singleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSingleTap:)];
+    UITapGestureRecognizer *singleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapSingleTap:)];
     singleTap.delegate = self;
     [_map addGestureRecognizer:singleTap];
 
@@ -119,7 +119,7 @@
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer
 {
-    return YES;
+    return NO;
 }
 
 - (void)layoutSubviews
@@ -136,7 +136,12 @@
     // Our desired API is to pass up markers/overlays as children to the mapview component.
     // This is where we intercept them and do the appropriate underlying mapview action.
     if ([subview isKindOfClass:[RCTMapboxAnnotation class]]) {
-        RCTMapboxAnnotation * annotation = (RCTMapboxAnnotation *) subview;
+        RCTMapboxAnnotation *annotation = (RCTMapboxAnnotation *) subview;
+
+        UITapGestureRecognizer *annotationTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleAnnotationSingleTap:)];
+        annotationTap.delegate = self;
+        [annotation addGestureRecognizer:annotationTap];
+
         annotation.map = self;
         [_map addAnnotation:annotation];
         [_reactSubviews insertObject:annotation atIndex:atIndex];
@@ -148,16 +153,17 @@
     // underlying mapview action here.
     if ([subview isKindOfClass:[RCTMapboxAnnotation class]]) {
         RCTMapboxAnnotation * annotation = (RCTMapboxAnnotation *) subview;
+        for (UIGestureRecognizer *gestureRecognizer in [annotation gestureRecognizers]) {
+            [annotation removeGestureRecognizer:gestureRecognizer];
+        }
+        [_reactSubviews removeObject:subview];
         [_map removeAnnotation:annotation];
-        [_reactSubviews removeObject:annotation];
     }
 }
 
 - (NSArray<id<RCTComponent>> *)reactSubviews {
     return _reactSubviews;
 }
-
-
 
 // Annotation management
 
@@ -199,15 +205,11 @@
     }
 }
 
-- (void)restoreAnnotationPosition:(NSString *)annotationId {
-    for (UIView *annotation in _reactSubviews) {
-        if ([annotation isKindOfClass:[RCTMapboxAnnotation class]] && ((RCTMapboxAnnotation *) annotation).reuseIdentifier == annotationId) {
-            CGPoint point = [_map convertCoordinate:((RCTMapboxAnnotation *) annotation).coordinate toPointToView:_map];
-            annotation.center = point;
-            return;
-        }
-    }
+- (void)restoreAnnotationPosition:(RCTMapboxAnnotation *)annotation {
+    CGPoint point = [_map convertCoordinate:annotation.coordinate toPointToView:_map];
+    annotation.center = point;
 }
+
 - (CGFloat)mapView:(MGLMapView *)mapView alphaForShapeAnnotation:(RCTMGLAnnotationPolyline *)shape
 {
     if ([shape isKindOfClass:[RCTMGLAnnotationPolyline class]]) {
@@ -248,13 +250,9 @@
 }
 
 - (nullable MGLAnnotationView *)mapView:(MGLMapView *)mapView viewForAnnotation:(id <MGLAnnotation>)annotation {
-    if ([annotation isKindOfClass:[RCTMapboxAnnotation class]] ){
+    if ([annotation isKindOfClass:[RCTMapboxAnnotation class]]) {
         RCTMapboxAnnotation *customAnnotation = (RCTMapboxAnnotation *)annotation;
-        MGLAnnotationView *annotationView = [mapView dequeueReusableAnnotationViewWithIdentifier:customAnnotation.reuseIdentifier];
-        if (!annotationView){
-            annotationView = customAnnotation;
-        }
-        return annotationView;
+        return customAnnotation;
     }
 
     return nil;
@@ -288,6 +286,9 @@
 
 - (MGLAnnotationImage *)mapView:(MGLMapView *)mapView imageForAnnotation:(id<MGLAnnotation>)annotation
 {
+    if ([annotation isKindOfClass:RCTMapboxAnnotation.class]) {
+        return nil;
+    }
     NSDictionary *source = [(RCTMGLAnnotation *) annotation annotationImageSource];
     if (!source) { return nil; }
 
@@ -601,22 +602,42 @@
                                       @"animated": @(animated) } });
 }
 
-- (void)handleSingleTap:(UITapGestureRecognizer *)sender
+- (void)handleMapSingleTap:(UITapGestureRecognizer *)sender
 {
-    if (!_onTap) { return; }
+    if (!_onTap) {return;}
 
     CLLocationCoordinate2D location = [_map convertPoint:[sender locationInView:_map] toCoordinateFromView:_map];
     CGPoint screenCoord = [sender locationInView:_map];
 
-    _onTap(@{ @"target": self.reactTag,
-              @"src": @{ @"latitude": @(location.latitude),
-                         @"longitude": @(location.longitude),
-                         @"screenCoordY": @(screenCoord.y),
-                         @"screenCoordX": @(screenCoord.x) } });
+    _onTap(@{@"target": self.reactTag,
+            @"src": @{@"latitude": @(location.latitude),
+                    @"longitude": @(location.longitude),
+                    @"screenCoordY": @(screenCoord.y),
+                    @"screenCoordX": @(screenCoord.x)}});
+}
+
+- (void)handleAnnotationSingleTap:(UITapGestureRecognizer *)sender
+{
+    if (!_onOpenAnnotation) {return;}
+    if ([sender.view isKindOfClass:RCTMapboxAnnotation.class]) {
+        RCTMapboxAnnotation *annotation = (RCTMapboxAnnotation *) sender.view;
+
+        _onOpenAnnotation(@{
+                @"target": self.reactTag,
+                @"src": @{
+                        @"title": annotation.title == nil ? @"" : annotation.title,
+                        @"subtitle": annotation.subtitle == nil ? @"" : annotation.subtitle,
+                        @"id": annotation.id,
+                        @"latitude": @(annotation.coordinate.latitude),
+                        @"longitude": @(annotation.coordinate.longitude)
+                }
+        });
+    }
 }
 
 - (void)handleLongPress:(UITapGestureRecognizer *)sender
 {
+
     if (!_onLongPress) { return; }
     if (sender.state != UIGestureRecognizerStateBegan) { return; }
 

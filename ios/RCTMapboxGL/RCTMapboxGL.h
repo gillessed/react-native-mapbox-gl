@@ -11,7 +11,9 @@
 #import <React/RCTEventDispatcher.h>
 #import <React/RCTBridgeModule.h>
 
-@interface RCTMapboxGL : RCTView <MGLMapViewDelegate>
+@class RCTMapboxAnnotation;
+
+@interface RCTMapboxGL : RCTView <MGLMapViewDelegate, UIGestureRecognizerDelegate>
 
 - (instancetype)initWithEventDispatcher:(RCTEventDispatcher *)eventDispatcher;
 
@@ -47,7 +49,7 @@
 - (void)upsertAnnotation:(NSObject *)annotation;
 - (void)removeAnnotation:(NSString*)selectedIdentifier;
 - (void)removeAllAnnotations;
-- (void)restoreAnnotationPosition:(NSString *)annotationId;
+- (void)restoreAnnotationPosition:(RCTMapboxAnnotation *)annotation;
 
 // Getters
 - (MGLCoordinateBounds)visibleCoordinateBounds;
